@@ -1,13 +1,34 @@
 import { useState } from "react";
-import { ArrowLeft, User, Building2, CheckCircle, Mail } from "lucide-react";
+import {
+  ArrowLeft,
+  User,
+  Building2,
+  CheckCircle,
+  Mail,
+  Phone,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import axios from "axios";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import logo from "figma:asset/eb6d15466f76858f9aa3d9535154b129bc9f0c63.png";
 
 interface ClinicOnboardingProps {
-  onComplete: (data: { name: string; hospital: string; email: string }) => void;
+  onComplete: (data: {
+    name: string;
+    password: string;
+    hospital: string;
+    email: string;
+    gender: string;
+    phone: string;
+  }) => void;
   onBack: () => void;
 }
 
@@ -17,15 +38,56 @@ export default function ClinicOnboarding({
 }: ClinicOnboardingProps) {
   const [formData, setFormData] = useState({
     name: "",
+    password: "",
     hospital: "",
     email: "",
+    gender: "",
+    countryCode: "+234",
+    phone: "",
   });
 
-  const handleSubmit = () => {
-    onComplete(formData);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await axios.post(
+        "https://dosewise-2p1n.onrender.com/api/auth/clinic/register",
+        {
+          name: formData.name,
+          email: formData.email,
+          password: "securepass123",
+          hospital: formData.hospital,
+          gender: formData.gender,
+          phone: formData.countryCode + formData.phone,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_MEDICAL_API_KEY}`,
+          },
+        }
+      );
+
+      console.log("Clinic registered:", response.data);
+      onComplete(formData);
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Registration failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const isValid = formData.name && formData.hospital && formData.email;
+  const isValid =
+    formData.name &&
+    formData.password &&
+    formData.hospital &&
+    formData.email &&
+    formData.gender &&
+    formData.phone;
 
   return (
     <div className="min-h-screen px-6 py-12">
@@ -95,6 +157,28 @@ export default function ClinicOnboarding({
             </div>
             <div>
               <Label
+                htmlFor="password"
+                className="mb-2 flex items-center gap-2"
+              >
+                <User className="w-4 h-4" style={{ color: "#1B4F72" }} />
+                <span style={{ fontFamily: "Roboto", color: "#1B4F72" }}>
+                  Password *
+                </span>
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
+                placeholder="Enter a secure password"
+                className="rounded-lg border-2"
+                style={{ borderColor: "#E8F4F8" }}
+              />
+            </div>
+            <div>
+              <Label
                 htmlFor="hospital"
                 className="mb-2 flex items-center gap-2"
               >
@@ -131,6 +215,75 @@ export default function ClinicOnboarding({
                 className="rounded-lg border-2"
                 style={{ borderColor: "#E8F4F8" }}
               />
+            </div>
+            <div>
+              <Label htmlFor="gender" className="mb-2 flex items-center gap-2">
+                <User className="w-4 h-4" style={{ color: "#1B4F72" }} />
+                <span style={{ fontFamily: "Roboto", color: "#1B4F72" }}>
+                  Gender *
+                </span>
+              </Label>
+              <Select
+                value={formData.gender}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, gender: value })
+                }
+                className="w-full"
+              >
+                <SelectTrigger
+                  className="rounded-lg border-2"
+                  style={{ borderColor: "#E8F4F8" }}
+                >
+                  <SelectValue placeholder="Select gender" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="male">Male</SelectItem>
+                  <SelectItem value="female">Female</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="phone" className="mb-2 flex items-center gap-2">
+                <Phone className="w-4 h-4" style={{ color: "#1B4F72" }} />
+                <span style={{ fontFamily: "Roboto", color: "#1B4F72" }}>
+                  Phone Number *
+                </span>
+              </Label>
+              <div className="flex gap-2">
+                <Select
+                  value={formData.countryCode}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, countryCode: value })
+                  }
+                >
+                  <SelectTrigger
+                    className="w-32 rounded-lg border-2"
+                    style={{ borderColor: "#E8F4F8" }}
+                  >
+                    <SelectValue placeholder="+234" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="+234">🇳🇬 +234</SelectItem>
+                    <SelectItem value="+1">🇺🇸 +1</SelectItem>
+                    <SelectItem value="+44">🇬🇧 +44</SelectItem>
+                    <SelectItem value="+91">🇮🇳 +91</SelectItem>
+                    <SelectItem value="+27">🇿🇦 +27</SelectItem>
+                    <SelectItem value="+254">🇰🇪 +254</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) =>
+                    setFormData({ ...formData, phone: e.target.value })
+                  }
+                  placeholder="8012345678"
+                  className="flex-1 rounded-lg border-2"
+                  style={{ borderColor: "#E8F4F8" }}
+                />
+              </div>
             </div>
           </div>
 
