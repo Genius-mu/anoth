@@ -107,11 +107,11 @@ export default function App() {
     setUser(null);
     setPendingUserType(null);
   };
-  const handleSymptomLogger = () => {
-    setCurrentPage("landing");
-    setUser(null);
-    setPendingUserType(null);
-  };
+  // const handleSymptomLogger = () => {
+  //   setCurrentPage("landing");
+  //   setUser(null);
+  //   setPendingUserType(null);
+  // };
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F2F6FA" }}>
@@ -140,12 +140,12 @@ export default function App() {
         <PatientOnboarding
           onComplete={handlePatientOnboardingComplete}
           onBack={handleBackToLanding}
-          onSymptomLogger={() => setCurrentPage("ChatPage")}
+          // onSymptomLogger={() => setCurrentPage("ChatPage")}
           // onSymptomLogger={ChatPage}
         />
       )}
 
-      {currentPage === "ChatPage" && <ChatPage onBack={handleBackToLanding} />}
+      {/* {currentPage === "ChatPage" && <ChatPage onBack={handleBackToLanding} />} */}
 
       {currentPage === "clinic-onboarding" && (
         <ClinicOnboarding

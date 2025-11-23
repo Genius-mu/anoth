@@ -1,42 +1,25 @@
-// // api.js
-// export async function sendSymptomToAI(text) {
-//   const res = await fetch("https://api.dorra.com/v1/ai/emr", {
-//     method: "POST",
-//     headers: {
-//       "Content-Type": "application/json",
-//       Authorization: `Bearer ${import.meta.env.VITE_MEDICAL_API_KEY}`,
-//     },
-//     body: JSON.stringify({ message: text }),
-//   });
+import axios from "axios";
 
-//   const data = await res.json();
-//   return data.summary; // or whatever field your backend returns
-// }
-
-export async function sendSymptomToAI(text, patientId = 0) {
+export async function createPatientRecord(text, patientId) {
   try {
-    const res = await fetch("https://hackathon-api.aheadafrica.org/v1/ai/emr", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${import.meta.env.VITE_MEDICAL_API_KEY}`,
-      },
-      body: JSON.stringify({ prompt: text, patient: patientId }),
-    });
+    const res = await axios.post(
+      "https://dosewise-2p1n.onrender.comPOST/v1/patients/create",
+      { text, patientId },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_MEDICAL_API_KEY}`,
+        },
+      }
+    );
 
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      console.error("API error:", res.status, errorData);
-      throw new Error(`Failed to fetch: ${res.status}`);
-    }
-
-    const data = await res.json();
-    // Dorra API returns 'resource' or 'summary'
-    return data.resource || data.summary || "No structured response";
+    return res.data; // Contains the created resource, pharmacies, etc.
   } catch (err) {
-    console.error("Network/API error:", err);
-    return "Error: Could not fetch response.";
+    if (err.response) {
+      console.error("API error:", err.response.status, err.response.data);
+    } else {
+      console.error("Network/API error:", err.message);
+    }
+    return null;
   }
 }
-
-console.log("Using API Key:", import.meta.env.VITE_MEDICAL_API_KEY);

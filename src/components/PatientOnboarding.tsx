@@ -10,6 +10,7 @@ import {
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import axios from "axios";
 import logo from "figma:asset/eb6d15466f76858f9aa3d9535154b129bc9f0c63.png";
 
 interface PatientOnboardingProps {
@@ -29,21 +30,49 @@ export default function PatientOnboarding({
     dob: "",
     email: "",
   });
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-
-  const handleNext = () => {
-    if (step === 1) {
-      setStep(2);
-    } else {
-      onComplete(formData);
-    }
-  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files) {
-      const fileNames = Array.from(files).map((f) => f.name);
-      setUploadedFiles((prev) => [...prev, ...fileNames]);
+    if (!files) return;
+
+    const fileNames = Array.from(files).map((f) => f.name);
+    setUploadedFiles((prev) => [...prev, ...fileNames]);
+  };
+
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const handleNext = async () => {
+    if (step === 1) {
+      setStep(2);
+    } else {
+      setLoading(true);
+      try {
+        // Correct body with the fields the API expects
+        const res = await axios.post(
+          "https://dosewise-2p1n.onrender.com/api/auth/patient/register",
+          {
+            name: formData.name,
+            dob: formData.dob,
+            email: formData.email,
+            password: formData.password || "defaultPassword123", // REQUIRED
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${import.meta.env.VITE_MEDICAL_API_KEY}`,
+            },
+          }
+        );
+
+        console.log("Patient created:", res.data);
+        onComplete(formData); // proceed to next part of your app
+      } catch (err: any) {
+        console.error("Error creating patient:", err.response || err.message);
+        alert("Failed to create patient. Check console for details.");
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
