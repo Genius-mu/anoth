@@ -187,7 +187,12 @@ export default function PatientDashboard({
   const [medicationAlternatives, setMedicationAlternatives] = useState<any[]>(
     []
   );
-  const [selectedClinic, setSelectedClinic] = useState<any>(null);
+  const [selectedClinic, setSelectedClinic] = useState<string>("");
+  const [clinics, setClinics] = useState<any[]>([
+    { id: "clinic1", name: "City General Hospital" },
+    { id: "clinic2", name: "Community Health Center" },
+    { id: "clinic3", name: "Family Medical Practice" },
+  ]);
   const [qrCodeData, setQrCodeData] = useState<any>(null);
   const [showQRModal, setShowQRModal] = useState(false);
   const [sessions, setSessions] = useState<any[]>([]);
@@ -1481,6 +1486,8 @@ export default function PatientDashboard({
 
       if (qrData) {
         setQrCodeData(qrData);
+        setQrCode(qrData.qrCode || qrData.accessCode); // Set the actual QR code
+        setQrExpiry(new Date(qrData.expiresAt));
         setShowQRModal(true);
         showToast("QR code generated successfully!", "success");
       } else {
@@ -1496,7 +1503,6 @@ export default function PatientDashboard({
       setIsLoading(false);
     }
   };
-
   const logoutPatient = () => {
     removeToken(); // This now comes from the API file
     onLogout();
@@ -2899,170 +2905,143 @@ export default function PatientDashboard({
               </p>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
-              <div
-                className="p-6 rounded-xl"
+            {/* Share via QR Code Section */}
+            <div
+              className="p-6 rounded-xl"
+              style={{
+                backgroundColor: "#FFFFFF",
+                boxShadow: "0 4px 16px rgba(10, 61, 98, 0.08)",
+              }}
+            >
+              <h3
+                className="mb-4"
                 style={{
-                  backgroundColor: "#FFFFFF",
-                  boxShadow: "0 4px 16px rgba(10, 61, 98, 0.08)",
+                  fontFamily: "Nunito Sans",
+                  color: "#0A3D62",
+                  fontSize: "20px",
                 }}
               >
-                <h3
-                  className="mb-4"
-                  style={{
-                    fontFamily: "Nunito Sans",
-                    color: "#0A3D62",
-                    fontSize: "20px",
-                  }}
-                >
-                  Share via QR Code
-                </h3>
-                <div
-                  className="p-8 rounded-xl flex items-center justify-center mb-4"
-                  style={{ backgroundColor: "#F2F6FA" }}
-                >
-                  {qrCode ? (
-                    <div className="text-center">
-                      <QrCode
-                        className="w-32 h-32 mx-auto mb-2"
-                        style={{ color: "#0A3D62" }}
-                      />
-                      {qrExpiry && (
-                        <p
-                          style={{
-                            fontFamily: "Lato",
-                            color: "#FF6F61",
-                            fontSize: "12px",
-                          }}
-                        >
-                          Expires in{" "}
-                          {Math.max(
-                            0,
-                            Math.floor(
-                              (qrExpiry.getTime() - Date.now()) / 60000
-                            )
-                          )}{" "}
-                          minutes
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <QrCode
-                      className="w-32 h-32"
-                      style={{ color: "#1B4F72", opacity: 0.3 }}
-                    />
-                  )}
-                </div>
-                <p
-                  className="text-center mb-4"
-                  style={{
-                    fontFamily: "Lato",
-                    color: "#1B4F72",
-                    fontSize: "14px",
-                  }}
-                >
-                  {qrCode
-                    ? "Scan this code to grant temporary access"
-                    : "Generate a QR code to share access"}
-                </p>
-                <Button
-                  onClick={handleGenerateQR}
+                Share via QR Code
+              </h3>
+
+              {/* Clinic Selection */}
+              <div className="mb-4">
+                <Label htmlFor="clinic-select">
+                  Select Clinic to Share With
+                </Label>
+                <Select
+                  value={selectedClinic}
+                  onValueChange={setSelectedClinic}
                   disabled={isLoading}
-                  variant="outline"
-                  className="w-full rounded-lg border-2"
-                  style={{
-                    fontFamily: "Poppins",
-                    borderColor: "#E8F4F8",
-                    color: "#1B4F72",
-                  }}
                 >
-                  {isLoading
-                    ? "Generating..."
-                    : qrCode
-                    ? "Regenerate Code"
-                    : "Generate New Code"}
-                </Button>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose a clinic..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clinics.map((clinic) => (
+                      <SelectItem key={clinic.id} value={clinic.id}>
+                        {clinic.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
+              {/* QR Code Display */}
               <div
-                className="p-6 rounded-xl"
+                className="p-8 rounded-xl flex items-center justify-center mb-4"
+                style={{ backgroundColor: "#F2F6FA" }}
+              >
+                {qrCode ? (
+                  <div className="text-center">
+                    {/* In a real app, you would use a QR code library here */}
+                    <div
+                      className="w-48 h-48 mx-auto mb-4 flex items-center justify-center bg-white p-4 rounded-lg"
+                      style={{ border: "2px solid #E8F4F8" }}
+                    >
+                      <QrCode
+                        className="w-32 h-32"
+                        style={{ color: "#0A3D62" }}
+                      />
+                    </div>
+                    {qrExpiry && (
+                      <p
+                        style={{
+                          fontFamily: "Lato",
+                          color: "#FF6F61",
+                          fontSize: "12px",
+                        }}
+                      >
+                        Expires in{" "}
+                        {Math.max(
+                          0,
+                          Math.floor((qrExpiry.getTime() - Date.now()) / 60000)
+                        )}{" "}
+                        minutes
+                      </p>
+                    )}
+                    {qrCodeData?.accessCode && (
+                      <p
+                        style={{
+                          fontFamily: "Roboto",
+                          color: "#1B4F72",
+                          fontSize: "14px",
+                          marginTop: "8px",
+                        }}
+                      >
+                        Access Code: {qrCodeData.accessCode}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <QrCode
+                      className="w-32 h-32 mx-auto mb-4"
+                      style={{ color: "#1B4F72", opacity: 0.3 }}
+                    />
+                    <p
+                      style={{
+                        fontFamily: "Lato",
+                        color: "#1B4F72",
+                        fontSize: "14px",
+                      }}
+                    >
+                      Select a clinic and generate QR code
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <p
+                className="text-center mb-4"
                 style={{
-                  backgroundColor: "#FFFFFF",
-                  boxShadow: "0 4px 16px rgba(10, 61, 98, 0.08)",
+                  fontFamily: "Lato",
+                  color: "#1B4F72",
+                  fontSize: "14px",
                 }}
               >
-                <h3
-                  className="mb-4"
-                  style={{
-                    fontFamily: "Nunito Sans",
-                    color: "#0A3D62",
-                    fontSize: "20px",
-                  }}
-                >
-                  Emergency Access
-                </h3>
-                <div
-                  className="p-6 rounded-lg mb-4"
-                  style={{
-                    backgroundColor: "#FFF5F5",
-                    border: "2px solid #FF6F61",
-                  }}
-                >
-                  <AlertCircle
-                    className="w-8 h-8 mb-3"
-                    style={{ color: "#FF6F61" }}
-                  />
-                  <p
-                    style={{
-                      fontFamily: "Nunito Sans",
-                      color: "#FF6F61",
-                      fontSize: "16px",
-                    }}
-                  >
-                    Emergency Access Enabled
-                  </p>
-                  <p
-                    style={{
-                      fontFamily: "Lato",
-                      color: "#1B4F72",
-                      fontSize: "14px",
-                    }}
-                  >
-                    Healthcare providers can access essential information using
-                    your name and date of birth in emergency situations.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span
-                      style={{
-                        fontFamily: "Roboto",
-                        color: "#1B4F72",
-                        fontSize: "14px",
-                      }}
-                    >
-                      Name:
-                    </span>
-                    <span style={{ fontFamily: "Roboto", color: "#0A3D62" }}>
-                      {user.name}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span
-                      style={{
-                        fontFamily: "Roboto",
-                        color: "#1B4F72",
-                        fontSize: "14px",
-                      }}
-                    >
-                      DOB:
-                    </span>
-                    <span style={{ fontFamily: "Roboto", color: "#0A3D62" }}>
-                      {user.dob}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                {qrCode
+                  ? "Scan this code to grant temporary access"
+                  : "Generate a QR code to share access with healthcare providers"}
+              </p>
+
+              <Button
+                onClick={handleGenerateQR}
+                disabled={isLoading || !selectedClinic}
+                className="w-full rounded-lg"
+                style={{
+                  fontFamily: "Poppins",
+                  backgroundColor:
+                    selectedClinic && !isLoading ? "#0A3D62" : "#E8F4F8",
+                  color: selectedClinic && !isLoading ? "#FFFFFF" : "#1B4F72",
+                }}
+              >
+                {isLoading
+                  ? "Generating..."
+                  : qrCode
+                  ? "Regenerate Code"
+                  : "Generate QR Code"}
+              </Button>
             </div>
 
             {/* Authorized Clinicians */}
@@ -3851,43 +3830,66 @@ export default function PatientDashboard({
       <Dialog open={showQRModal} onOpenChange={setShowQRModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>QR Code for Access</DialogTitle>
+            <DialogTitle>QR Code for Medical Access</DialogTitle>
             <DialogDescription>
-              Share this QR code with healthcare providers
+              Share this QR code with{" "}
+              {clinics.find((c) => c.id === selectedClinic)?.name ||
+                "the selected clinic"}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-center py-4">
+          <div className="flex flex-col items-center py-4">
             {qrCodeData ? (
               <div className="text-center">
-                <div className="p-4 bg-white rounded-lg inline-block">
+                <div
+                  className="p-6 bg-white rounded-lg inline-block border-2"
+                  style={{ borderColor: "#E8F4F8" }}
+                >
                   <QrCode
                     className="w-48 h-48 mx-auto"
                     style={{ color: "#0A3D62" }}
                   />
                 </div>
-                <p className="mt-4 text-sm" style={{ color: "#1B4F72" }}>
-                  Access Code: {qrCodeData.accessCode}
-                </p>
-                <p className="text-sm" style={{ color: "#FF6F61" }}>
-                  Expires: {new Date(qrCodeData.expiresAt).toLocaleTimeString()}
-                </p>
+                <div className="mt-4 space-y-2">
+                  <p
+                    className="text-sm font-medium"
+                    style={{ color: "#1B4F72" }}
+                  >
+                    Access Code:{" "}
+                    <span style={{ color: "#0A3D62" }}>
+                      {qrCodeData.accessCode}
+                    </span>
+                  </p>
+                  <p className="text-sm" style={{ color: "#FF6F61" }}>
+                    ⏰ Expires:{" "}
+                    {new Date(qrCodeData.expiresAt).toLocaleString()}
+                  </p>
+                  <p
+                    className="text-xs mt-3 p-2 rounded-lg"
+                    style={{ backgroundColor: "#F0F9FF", color: "#1B4F72" }}
+                  >
+                    This code grants temporary read-only access to your medical
+                    records
+                  </p>
+                </div>
               </div>
             ) : (
-              <div className="text-center">
+              <div className="text-center py-8">
                 <p style={{ color: "#1B4F72" }}>Generating QR code...</p>
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setShowQRModal(false)}>
               Close
             </Button>
             <Button
               onClick={() => {
-                // Add download functionality here
+                // In a real app, this would save the QR code as an image
                 showToast("QR code saved to camera roll", "success");
               }}
+              disabled={!qrCodeData}
             >
+              <Download className="w-4 h-4 mr-2" />
               Save QR Code
             </Button>
           </DialogFooter>
