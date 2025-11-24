@@ -14,6 +14,8 @@ interface LoginProps {
     email: string;
     userType: "patient" | "clinic";
     token: string;
+    userId: string;
+    name: string;
   }) => void;
   onBack: () => void;
   onSignup: () => void;
@@ -32,15 +34,15 @@ export default function Login({
     email: "",
     password: "",
   });
-
-  const [profile, setProfile] = useState<any>(null);
-  const [token, setToken] = useState<string | null>(null); // store JWT after login
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
 
     if (!formData.email || !formData.password) {
       alert("Please fill in all fields");
+      setIsLoading(false);
       return;
     }
 
@@ -51,37 +53,86 @@ export default function Login({
         userType: activeTab,
       };
 
+      console.log("🔐 Attempting login:", {
+        email: formData.email,
+        userType: activeTab,
+      });
+
+      // Use the correct endpoint structure from the API docs
       const res = await axios.post(
-        "https://dosewise-2p1n.onrender.com/api/auth/login",
+        "https://dosewise-2p1n.onrender.com/auth/login", // Removed /api prefix
         body,
         {
           headers: {
             "Content-Type": "application/json",
           },
+          timeout: 10000, // 10 second timeout
         }
       );
 
-      console.log(`${activeTab} logged in:`, res.data);
+      console.log("✅ Login response:", res.data);
+
+      if (!res.data.success) {
+        throw new Error(res.data.message || "Login failed");
+      }
+
+      // Extract data from response based on API docs structure
+      const userData = res.data.data;
+      const token = userData.token;
+      const userId = userData._id;
+      const userName = userData.name;
+
+      if (!token) {
+        throw new Error("No token received from server");
+      }
 
       // Store the token properly
-      const token = res.data.data.token;
-      const userType = activeTab;
+      storeToken(token, activeTab);
 
-      // Use the storeToken function from api.js
-      storeToken(token, userType);
+      // Also store user ID for future use
+      if (activeTab === "patient") {
+        localStorage.setItem("patientId", userId);
+      }
 
-      // Also store in localStorage as backup
-      localStorage.setItem(`${userType}Token`, token);
+      console.log("✅ Login successful:", {
+        userId,
+        userName,
+        userType: activeTab,
+        tokenPreview: token.substring(0, 20) + "...",
+      });
 
-      // Proceed to next step
+      // Proceed to next step with complete user data
       onComplete({
         email: formData.email,
         userType: activeTab,
-        token: token, // Pass the token to parent
+        token: token,
+        userId: userId,
+        name: userName,
       });
     } catch (err: any) {
-      console.error("Login error:", err.response?.data || err.message);
-      alert("Login failed. Check your email/password and try again.");
+      console.error("❌ Login error:", {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message,
+      });
+
+      let errorMessage = "Login failed. Please try again.";
+
+      if (err.response?.status === 401) {
+        errorMessage =
+          "Invalid email or password. Please check your credentials.";
+      } else if (err.response?.status === 404) {
+        errorMessage = "User not found. Please check your email or sign up.";
+      } else if (err.code === "NETWORK_ERROR" || err.code === "ECONNABORTED") {
+        errorMessage =
+          "Network error. Please check your connection and try again.";
+      } else if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      }
+
+      alert(errorMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -92,8 +143,9 @@ export default function Login({
         <div className="mb-8">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 mb-6 transition-colors"
+            className="flex items-center gap-2 mb-6 transition-colors hover:opacity-70"
             style={{ color: "#1B4F72" }}
+            disabled={isLoading}
           >
             <ArrowLeft className="w-5 h-5" />
             <span style={{ fontFamily: "Roboto" }}>Back</span>
@@ -149,6 +201,7 @@ export default function Login({
                 value="patient"
                 className="rounded-lg"
                 style={{ fontFamily: "Poppins" }}
+                disabled={isLoading}
               >
                 Patient
               </TabsTrigger>
@@ -156,6 +209,7 @@ export default function Login({
                 value="clinic"
                 className="rounded-lg"
                 style={{ fontFamily: "Poppins" }}
+                disabled={isLoading}
               >
                 Clinic
               </TabsTrigger>
@@ -183,6 +237,8 @@ export default function Login({
                     placeholder="your.email@example.com"
                     className="rounded-lg border-2"
                     style={{ borderColor: "#E8F4F8" }}
+                    disabled={isLoading}
+                    required
                   />
                 </div>
                 <div>
@@ -205,11 +261,17 @@ export default function Login({
                     placeholder="Enter your password"
                     className="rounded-lg border-2"
                     style={{ borderColor: "#E8F4F8" }}
+                    disabled={isLoading}
+                    required
                   />
                 </div>
                 <div className="flex justify-between items-center">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="rounded" />
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      disabled={isLoading}
+                    />
                     <span
                       style={{
                         fontFamily: "Roboto",
@@ -227,6 +289,7 @@ export default function Login({
                       color: "#0A3D62",
                       fontSize: "14px",
                     }}
+                    className="hover:underline"
                   >
                     Forgot password?
                   </a>
@@ -239,8 +302,9 @@ export default function Login({
                     backgroundColor: "#0A3D62",
                     color: "#FFFFFF",
                   }}
+                  disabled={isLoading}
                 >
-                  Sign In as Patient
+                  {isLoading ? "Signing In..." : "Sign In as Patient"}
                 </Button>
               </form>
             </TabsContent>
@@ -267,6 +331,8 @@ export default function Login({
                     placeholder="doctor@hospital.com"
                     className="rounded-lg border-2"
                     style={{ borderColor: "#E8F4F8" }}
+                    disabled={isLoading}
+                    required
                   />
                 </div>
                 <div>
@@ -289,11 +355,17 @@ export default function Login({
                     placeholder="Enter your password"
                     className="rounded-lg border-2"
                     style={{ borderColor: "#E8F4F8" }}
+                    disabled={isLoading}
+                    required
                   />
                 </div>
                 <div className="flex justify-between items-center">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="rounded" />
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      disabled={isLoading}
+                    />
                     <span
                       style={{
                         fontFamily: "Roboto",
@@ -311,6 +383,7 @@ export default function Login({
                       color: "#0A3D62",
                       fontSize: "14px",
                     }}
+                    className="hover:underline"
                   >
                     Forgot password?
                   </a>
@@ -323,8 +396,9 @@ export default function Login({
                     backgroundColor: "#0A3D62",
                     color: "#FFFFFF",
                   }}
+                  disabled={isLoading}
                 >
-                  Sign In as Clinician
+                  {isLoading ? "Signing In..." : "Sign In as Clinician"}
                 </Button>
               </form>
             </TabsContent>
@@ -347,6 +421,8 @@ export default function Login({
                   fontSize: "14px",
                   textDecoration: "underline",
                 }}
+                className="hover:opacity-70"
+                disabled={isLoading}
               >
                 Sign up
               </button>

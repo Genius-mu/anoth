@@ -2,6 +2,7 @@
 import axios from "axios";
 
 const API_BASE = "https://dosewise-2p1n.onrender.com/api";
+// const API_BASE = "https://dosewise-2p1n.onrender.com";
 
 // Helper functions
 export const getStoredToken = () => {
@@ -198,6 +199,46 @@ export const checkDrugInteractions = async (medications) => {
 };
 
 // In api.js - FIXED aiEMRExtraction function
+// export const aiEMRExtraction = async (text, patientId) => {
+//   try {
+//     const token = getStoredToken();
+
+//     if (!token) {
+//       throw new Error("No authentication token found. Please log in again.");
+//     }
+
+//     console.log("🎯 Sending to AI EMR extraction with:", {
+//       textLength: text.length,
+//       patientId: patientId,
+//       hasToken: true,
+//       tokenPreview: token.substring(0, 20) + "...",
+//     });
+
+//     const response = await api.post("/ai/emr", {
+//       text,
+//       patientId,
+//     });
+
+//     console.log("✅ AI EMR extraction successful:", response.data);
+//     return response.data;
+//   } catch (error) {
+//     console.error("❌ AI EMR extraction failed:", {
+//       status: error.response?.status,
+//       message: error.response?.data?.message,
+//       patientId: patientId,
+//     });
+
+//     // Re-throw the error with more context
+//     throw new Error(
+//       `AI EMR extraction failed: ${
+//         error.response?.data?.message || error.message
+//       }`
+//     );
+//   }
+// };
+
+// In your api.js, update the aiEMRExtraction function:
+
 export const aiEMRExtraction = async (text, patientId) => {
   try {
     const token = getStoredToken();
@@ -213,9 +254,33 @@ export const aiEMRExtraction = async (text, patientId) => {
       tokenPreview: token.substring(0, 20) + "...",
     });
 
+    // For demo patients with simple IDs like "1", "2", "3", use a fallback
+    // These are not valid MongoDB ObjectIds, so the backend will reject them
+    const validPatientId = isValidObjectId(patientId) ? patientId : null;
+
+    if (!validPatientId) {
+      console.log("⚠️ Using demo patient ID - skipping AI EMR extraction");
+      // Return mock success response for demo patients
+      return {
+        success: true,
+        data: {
+          resource: "Encounter",
+          dorraResponse: {
+            status: true,
+            status_code: 201,
+            resource: "Encounter",
+            message: "Demo session processed successfully",
+            id: `demo_${Date.now()}`,
+            available_pharmacies: [],
+          },
+        },
+        message: "Demo session completed (AI EMR skipped for demo patients)",
+      };
+    }
+
     const response = await api.post("/ai/emr", {
       text,
-      patientId,
+      patientId: validPatientId,
     });
 
     console.log("✅ AI EMR extraction successful:", response.data);
@@ -227,7 +292,26 @@ export const aiEMRExtraction = async (text, patientId) => {
       patientId: patientId,
     });
 
-    // Re-throw the error with more context
+    // For demo patients, return mock success instead of error
+    if (!isValidObjectId(patientId)) {
+      console.log("🔄 Returning mock success for demo patient");
+      return {
+        success: true,
+        data: {
+          resource: "Encounter",
+          dorraResponse: {
+            status: true,
+            status_code: 201,
+            resource: "Encounter",
+            message: "Demo session completed",
+            id: `demo_${Date.now()}`,
+            available_pharmacies: [],
+          },
+        },
+        message: "Demo session processed successfully",
+      };
+    }
+
     throw new Error(
       `AI EMR extraction failed: ${
         error.response?.data?.message || error.message
@@ -235,6 +319,11 @@ export const aiEMRExtraction = async (text, patientId) => {
     );
   }
 };
+
+// Helper function to check if string is a valid MongoDB ObjectId
+function isValidObjectId(id) {
+  return /^[0-9a-fA-F]{24}$/.test(id);
+}
 
 // ==================== CLINIC ENDPOINTS ====================
 
@@ -551,6 +640,15 @@ export const revokeAccess = async (grantId) => {
 
 // ==================== AUTH ENDPOINTS ====================
 
+// export const loginPatient = async (email, password) => {
+//   const res = await axios.post(`${API_BASE}/auth/login`, {
+//     email,
+//     password,
+//     userType: "patient",
+//   });
+//   return res.data.data;
+// };
+
 export const loginPatient = async (email, password) => {
   const res = await axios.post(`${API_BASE}/auth/login`, {
     email,
@@ -576,6 +674,15 @@ export const loginClinic = async (email, password) => {
   });
   return res.data.data;
 };
+
+// export const loginClinic = async (email, password) => {
+//   const res = await axios.post(`${API_BASE}/auth/login`, {
+//     email,
+//     password,
+//     userType: "clinic",
+//   });
+//   return res.data.data;
+// };
 
 // In your api/api.ts file, add these functions:
 
@@ -614,12 +721,164 @@ export const getAIMedicationAlternatives = async (medication, condition) => {
 // ==================== SESSION ENDPOINTS ====================
 
 // Create a new session (Clinic)
+// export const createSession = async (sessionData) => {
+//   try {
+//     console.log("🎤 Creating session:", sessionData);
+
+//     const res = await api.post(`/sessions`, sessionData);
+//     console.log("✅ Session created successfully:", res.data);
+//     return res.data.data;
+//   } catch (error) {
+//     console.error("❌ Error creating session:", error);
+
+//     // Enhanced mock response for development
+//     const mockResponse = {
+//       _id: `session_${Date.now()}`,
+//       ...sessionData,
+//       status: "completed",
+//       createdAt: new Date().toISOString(),
+//       updatedAt: new Date().toISOString(),
+//     };
+
+//     console.log("⚠️ Using mock session creation - STORED IN MOCK DATABASE");
+
+//     // Store in localStorage as mock database
+//     const existingSessions = JSON.parse(
+//       localStorage.getItem("mockSessions") || "[]"
+//     );
+//     const updatedSessions = [...existingSessions, mockResponse];
+//     localStorage.setItem("mockSessions", JSON.stringify(updatedSessions));
+
+//     console.log(
+//       "📦 Mock session stored. Total sessions:",
+//       updatedSessions.length
+//     );
+
+//     return mockResponse;
+//   }
+// };
+
+// // Get sessions by clinic (Clinic)
+// export const getClinicSessions = async (clinicId) => {
+//   try {
+//     const res = await api.get(`/sessions/clinic/${clinicId}`);
+//     return res.data.data;
+//   } catch (error) {
+//     console.error("Error fetching clinic sessions:", error);
+
+//     // Get all sessions from mock database
+//     const mockSessions = JSON.parse(
+//       localStorage.getItem("mockSessions") || "[]"
+//     );
+//     console.log("📋 All sessions in mock database:", mockSessions);
+
+//     return mockSessions;
+//   }
+// };
+
+// In your api.js - UPDATE these session functions:
+
+// Create a new session (Clinic) - Use encounter endpoint instead
+// export const createSession = async (sessionData) => {
+//   try {
+//     console.log("🎤 Creating session as encounter:", sessionData);
+
+//     // Convert session data to encounter format
+//     const encounterData = {
+//       patientId: sessionData.patientId,
+//       summary: sessionData.summary || "Voice consultation session",
+//       symptoms: [],
+//       diagnosis: "Consultation completed",
+//       medications: [],
+//       vitals: {},
+//       transcript: sessionData.transcript,
+//       duration: sessionData.duration,
+//       sessionDate: sessionData.sessionDate,
+//     };
+
+//     const res = await api.post(`/clinic/encounter`, encounterData);
+//     console.log("✅ Session created as encounter successfully:", res.data);
+//     return res.data.data;
+//   } catch (error) {
+//     console.error("❌ Error creating session:", error);
+
+//     // Enhanced mock response for development
+//     const mockResponse = {
+//       _id: `session_${Date.now()}`,
+//       ...sessionData,
+//       status: "completed",
+//       createdAt: new Date().toISOString(),
+//       updatedAt: new Date().toISOString(),
+//     };
+
+//     console.log("⚠️ Using mock session creation - STORED IN MOCK DATABASE");
+
+//     // Store in localStorage as mock database
+//     const existingSessions = JSON.parse(
+//       localStorage.getItem("mockSessions") || "[]"
+//     );
+//     const updatedSessions = [...existingSessions, mockResponse];
+//     localStorage.setItem("mockSessions", JSON.stringify(updatedSessions));
+
+//     console.log(
+//       "📦 Mock session stored. Total sessions:",
+//       updatedSessions.length
+//     );
+
+//     return mockResponse;
+//   }
+// };
+
+// Update the createSession function in api.js:
+
 export const createSession = async (sessionData) => {
   try {
-    console.log("🎤 Creating session:", sessionData);
+    console.log("🎤 Creating session as encounter:", sessionData);
 
-    const res = await api.post(`/sessions`, sessionData);
-    console.log("✅ Session created successfully:", res.data);
+    // For demo patients, skip the API call and use mock data
+    if (!isValidObjectId(sessionData.patientId)) {
+      console.log("🔄 Using mock session creation for demo patient");
+
+      const mockResponse = {
+        _id: `session_${Date.now()}`,
+        ...sessionData,
+        status: "completed",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      console.log("⚠️ Using mock session creation - STORED IN MOCK DATABASE");
+
+      // Store in localStorage as mock database
+      const existingSessions = JSON.parse(
+        localStorage.getItem("mockSessions") || "[]"
+      );
+      const updatedSessions = [...existingSessions, mockResponse];
+      localStorage.setItem("mockSessions", JSON.stringify(updatedSessions));
+
+      console.log(
+        "📦 Mock session stored. Total sessions:",
+        updatedSessions.length
+      );
+
+      return mockResponse;
+    }
+
+    // Convert session data to encounter format (only for real patients)
+    const encounterData = {
+      patientId: sessionData.patientId,
+      summary: sessionData.summary || "Voice consultation session",
+      symptoms: [],
+      diagnosis: "Consultation completed",
+      medications: [],
+      vitals: {},
+      transcript: sessionData.transcript,
+      duration: sessionData.duration,
+      sessionDate: sessionData.sessionDate,
+    };
+
+    const res = await api.post(`/clinic/encounter`, encounterData);
+    console.log("✅ Session created as encounter successfully:", res.data);
     return res.data.data;
   } catch (error) {
     console.error("❌ Error creating session:", error);
@@ -651,6 +910,40 @@ export const createSession = async (sessionData) => {
   }
 };
 
+// Get sessions by clinic (Clinic) - Use local storage mock
+export const getClinicSessions = async (clinicId) => {
+  try {
+    // Since this endpoint doesn't exist, use mock data
+    console.log("📋 Fetching sessions from mock database");
+
+    const mockSessions = JSON.parse(
+      localStorage.getItem("mockSessions") || "[]"
+    );
+
+    // Filter by clinicId if provided
+    const filteredSessions = clinicId
+      ? mockSessions.filter((s) => s.clinicId === clinicId)
+      : mockSessions;
+
+    console.log(
+      "✅ Sessions fetched from mock database:",
+      filteredSessions.length
+    );
+    return filteredSessions;
+  } catch (error) {
+    console.error("Error fetching clinic sessions:", error);
+
+    // Get all sessions from mock database
+    const mockSessions = JSON.parse(
+      localStorage.getItem("mockSessions") || "[]"
+    );
+    console.log("📋 All sessions in mock database:", mockSessions);
+
+    return mockSessions;
+  }
+};
+
+// Get patient sessions
 export const getPatientSessions = async (patientId) => {
   try {
     const res = await api.get(`/sessions/patient/${patientId}`);
@@ -673,24 +966,6 @@ export const getPatientSessions = async (patientId) => {
     );
 
     return patientSessions;
-  }
-};
-
-// Get sessions by clinic (Clinic)
-export const getClinicSessions = async (clinicId) => {
-  try {
-    const res = await api.get(`/sessions/clinic/${clinicId}`);
-    return res.data.data;
-  } catch (error) {
-    console.error("Error fetching clinic sessions:", error);
-
-    // Get all sessions from mock database
-    const mockSessions = JSON.parse(
-      localStorage.getItem("mockSessions") || "[]"
-    );
-    console.log("📋 All sessions in mock database:", mockSessions);
-
-    return mockSessions;
   }
 };
 
