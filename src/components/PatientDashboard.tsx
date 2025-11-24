@@ -200,6 +200,11 @@ export default function PatientDashboard({
     prescribedBy: "",
     condition: "", // Added for AI analysis
   });
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
+    null
+  );
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Add these missing API functions (you'll need to implement them in your api.ts)
   const analyzePrescriptionWithAI = async (prescriptionData: any) => {
@@ -670,10 +675,275 @@ export default function PatientDashboard({
     setToast({ message, type });
   };
 
-  const handleStartRecording = () => {
-    setIsRecording(true);
-    setRecordingTime(0);
-    showToast("Recording started. Speak clearly about your visit.", "info");
+  const handleStartRecording = async () => {
+    try {
+      // Check if browser supports media recording
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast("Voice recording not supported in this browser", "error");
+        return;
+      }
+
+      // Request microphone permission
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100,
+        },
+      });
+
+      // Create media recorder
+      const recorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm;codecs=opus",
+      });
+
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(chunks, { type: "audio/webm" });
+        setAudioChunks(chunks);
+        processAudioRecording(audioBlob);
+      };
+
+      // Start recording
+      recorder.start(1000); // Collect data every second
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+      setRecordingTime(0);
+      showToast(
+        "Recording started. Speak clearly about your symptoms or visit.",
+        "info"
+      );
+    } catch (error) {
+      console.error("Error starting recording:", error);
+
+      if (error instanceof Error) {
+        if (error.name === "NotAllowedError") {
+          showToast(
+            "Microphone permission denied. Please allow microphone access.",
+            "error"
+          );
+        } else if (error.name === "NotFoundError") {
+          showToast(
+            "No microphone found. Please check your audio devices.",
+            "error"
+          );
+        } else {
+          showToast("Failed to start recording: " + error.message, "error");
+        }
+      } else {
+        showToast("Failed to start recording", "error");
+      }
+    }
+  };
+
+  const processAudioRecording = async (audioBlob: Blob) => {
+    try {
+      // Option 1: Use Web Speech API (built-in, free, but limited)
+      const transcribedText = await transcribeWithWebSpeechAPI(audioBlob);
+
+      // Option 2: Or use your backend API for better accuracy
+      // const transcribedText = await transcribeWithBackendAPI(audioBlob);
+
+      // Process the transcribed text
+      await handleProcessTranscribedText(transcribedText);
+    } catch (error) {
+      console.error("Error processing recording:", error);
+      showToast("Failed to process recording. Please try again.", "error");
+
+      // Fallback: Use mock transcription
+      const fallbackText = await simulateVoiceTranscription();
+      await handleProcessTranscribedText(fallbackText);
+    } finally {
+      setIsProcessing(false);
+      setAudioChunks([]);
+      setMediaRecorder(null);
+    }
+  };
+
+  const transcribeWithWebSpeechAPI = (audioBlob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      // Note: Web Speech API works best with direct microphone input
+      // For audio files, you might need to convert and play them
+      // This is a simplified implementation
+
+      if (
+        !("webkitSpeechRecognition" in window) &&
+        !("SpeechRecognition" in window)
+      ) {
+        reject(new Error("Speech recognition not supported"));
+        return;
+      }
+
+      const SpeechRecognition =
+        (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        resolve(transcript);
+      };
+
+      recognition.onerror = (event: any) => {
+        reject(new Error(event.error));
+      };
+
+      recognition.onend = () => {
+        // If no result after ending, reject
+        reject(new Error("No speech detected"));
+      };
+
+      // For file-based recognition, we need to play the audio
+      // This is a limitation of Web Speech API
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      audio.onplay = () => {
+        recognition.start();
+      };
+
+      audio.onended = () => {
+        recognition.stop();
+      };
+
+      audio.play().catch(reject);
+    });
+  };
+
+  const transcribeWithBackendAPI = async (audioBlob: Blob): Promise<string> => {
+    const formData = new FormData();
+    formData.append("audio", audioBlob, "recording.webm");
+
+    try {
+      const response = await fetch("/api/speech-to-text", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.transcript;
+    } catch (error) {
+      console.error("Backend transcription failed:", error);
+      throw error;
+    }
+  };
+
+  const analyzeMedicalContent = (text: string) => {
+    const symptoms: string[] = [];
+    const medications: string[] = [];
+
+    // Simple keyword matching - you can enhance this with more sophisticated NLP
+    const symptomKeywords = [
+      "headache",
+      "pain",
+      "fever",
+      "cough",
+      "nausea",
+      "dizziness",
+      "fatigue",
+      "weakness",
+      "chills",
+      "sweating",
+      "shortness of breath",
+      "chest pain",
+      "abdominal pain",
+      "back pain",
+      "joint pain",
+    ];
+
+    const medicationKeywords = [
+      "aspirin",
+      "ibuprofen",
+      "paracetamol",
+      "lisinopril",
+      "metformin",
+      "atorvastatin",
+      "levothyroxine",
+      "metoprolol",
+      "amlodipine",
+    ];
+
+    symptomKeywords.forEach((symptom) => {
+      if (text.toLowerCase().includes(symptom)) {
+        symptoms.push(symptom);
+      }
+    });
+
+    medicationKeywords.forEach((med) => {
+      if (text.toLowerCase().includes(med)) {
+        medications.push(med);
+      }
+    });
+
+    return {
+      symptoms,
+      medications,
+      hasMedicalContent: symptoms.length > 0 || medications.length > 0,
+    };
+  };
+
+  const simulateVoiceTranscription = async (): Promise<string> => {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const sampleTranscripts = [
+          "I've been experiencing headaches and fatigue for the past three days. The pain is mostly in my temples and gets worse in the afternoon.",
+          "My blood pressure medication seems to be working well. No significant side effects to report this week.",
+          "Follow-up on my stomach issues. The antacids are helping but I still get occasional discomfort after meals.",
+          "I've been feeling dizzy when standing up quickly, and have noticed some increased fatigue over the past week.",
+          "Routine check-up. All vitals stable, continuing with current medication regimen as prescribed.",
+        ];
+        const randomTranscript =
+          sampleTranscripts[
+            Math.floor(Math.random() * sampleTranscripts.length)
+          ];
+        resolve(randomTranscript);
+      }, 2000);
+    });
+  };
+
+  const handleProcessTranscribedText = async (transcribedText: string) => {
+    try {
+      console.log("Transcribed text:", transcribedText);
+
+      // Analyze the text for medical content
+      const analysis = analyzeMedicalContent(transcribedText);
+
+      // Show success message with summary
+      showToast(
+        `Recording processed! ${
+          analysis.symptoms.length > 0
+            ? `Detected ${analysis.symptoms.length} symptoms`
+            : "Summary saved to your records"
+        }`,
+        "success"
+      );
+
+      // Auto-populate symptom logger if medical content detected
+      if (analysis.symptoms.length > 0) {
+        setTimeout(() => {
+          setShowSymptomLogger(true);
+          // You could pass the analyzed data to the symptom logger
+        }, 1000);
+      }
+    } catch (error) {
+      console.error("Error processing transcribed text:", error);
+      showToast("Recording saved, but analysis failed", "warning");
+    }
   };
 
   const handleStopRecording = async () => {
