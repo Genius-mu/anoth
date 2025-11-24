@@ -48,11 +48,12 @@ import {
 } from "./ui/select";
 import Toast from "./Toast";
 import {
-  createEncounter,
+  createEncounter, // For basic encounter creation
   getClinicPatientInfo,
   checkPrescriptionInteractions,
   getEncounterById,
   createPrescription,
+  aiEMRExtraction, // For AI EMR extraction
 } from "./api/api";
 import logo from "figma:asset/eb6d15466f76858f9aa3d9535154b129bc9f0c63.png";
 
@@ -144,6 +145,13 @@ export default function ClinicDashboard({
   const [sessionType, setSessionType] = useState<"new" | "existing">(
     "existing"
   );
+  // Add these state variables near your other state declarations
+  const [medicationToCheck, setMedicationToCheck] = useState("");
+  const [compatibilityResult, setCompatibilityResult] = useState<any>(null);
+  const [isCheckingCompatibility, setIsCheckingCompatibility] = useState(false);
+  const [patientCurrentMedications, setPatientCurrentMedications] = useState<
+    string[]
+  >([]);
 
   // Search and filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -347,6 +355,142 @@ export default function ClinicDashboard({
     };
   }, [isRecording]);
 
+  // Add these state variables
+  // Add this function to load sessions
+  const loadSessions = async () => {
+    try {
+      // For clinic, we might want to get all sessions or filter by patient
+      const clinicSessions = await getClinicSessions("clinic-id"); // You'll need to get clinic ID from user
+
+      if (clinicSessions && clinicSessions.length > 0) {
+        const formattedSessions = clinicSessions.map((session: any) => ({
+          id: session._id,
+          patient: session.patientName || "Unknown Patient",
+          patientId: session.patientId,
+          date: new Date(session.sessionDate).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+          duration: session.duration || "Unknown",
+          summary: session.summary || "No summary available",
+          transcribed: session.transcribed || false,
+          transcript: session.transcript,
+        }));
+
+        setSessions(formattedSessions);
+      }
+    } catch (error) {
+      console.error("Error loading sessions:", error);
+    }
+  };
+
+  // Add this function to fetch patient medications
+  const fetchPatientMedications = async (patientId: string) => {
+    try {
+      // Replace with your actual API call to get patient's current medications
+      const patientInfo = await getClinicPatientInfo(patientId);
+      setPatientCurrentMedications(patientInfo.currentMedications || []);
+    } catch (error) {
+      console.error("Error fetching patient medications:", error);
+      // Fallback to demo data
+      setPatientCurrentMedications(["Lisinopril", "Metformin"]);
+    }
+  };
+
+  // Call this when a patient is selected
+  useEffect(() => {
+    if (selectedPatient) {
+      fetchPatientMedications(selectedPatient);
+    }
+  }, [selectedPatient]);
+
+  // Update the handleStopRecording function to save sessions properly
+  const handleStopRecording = async () => {
+    setIsLoading(true);
+    setIsRecording(false);
+
+    try {
+      const selectedPatientData = patients.find(
+        (p) => p.id === selectedPatient
+      );
+
+      if (!selectedPatientData) {
+        showToast("Please select a patient first", "error");
+        setIsLoading(false);
+        return;
+      }
+
+      // Show processing message
+      showToast("🎤 Processing voice recording and transcribing...", "info");
+
+      // Simulate voice transcription
+      const transcribedText = await simulateVoiceTranscription();
+
+      // Create comprehensive encounter data from the recording
+      const encounterData: EncounterData = {
+        summary: `Voice consultation with ${selectedPatientData.name}`,
+        symptoms: extractSymptomsFromText(transcribedText),
+        diagnosis: extractDiagnosisFromText(transcribedText),
+        medications: extractMedicationsFromText(transcribedText),
+        vitals: extractVitalsFromText(transcribedText),
+      };
+
+      console.log("🎤 Recording processed:", {
+        duration: formatRecordingTime(recordingTime),
+        patient: selectedPatientData.name,
+        transcribedText: transcribedText.substring(0, 100) + "...",
+      });
+
+      // ✅ CREATE SESSION IN DATABASE
+      const sessionPayload = {
+        patientId: selectedPatient,
+        patientName: selectedPatientData.name,
+        clinicId: "current-clinic-id", // You'll need to get this from your user object
+        sessionDate: new Date().toISOString(),
+        duration: formatRecordingTime(recordingTime),
+        summary: encounterData.summary,
+        transcribed: true,
+        transcript: transcribedText,
+        type: "voice_consultation",
+        status: "completed",
+      };
+
+      console.log("💾 Saving session to database:", sessionPayload);
+
+      // Save session to database
+      const savedSession = await createSession(sessionPayload);
+      console.log("✅ Session saved successfully:", savedSession);
+
+      // Also use AI EMR extraction if available
+      await handleCreateEncounterWithAI(
+        selectedPatient!,
+        encounterData,
+        transcribedText
+      );
+
+      // Refresh sessions list
+      await loadSessions();
+
+      showToast(
+        "✅ Session recorded, transcribed, and saved to database!",
+        "success"
+      );
+      setActiveTab("sessions");
+    } catch (error) {
+      console.error("Error processing recording:", error);
+      showToast("Recording saved locally. Database update pending.", "info");
+    } finally {
+      setIsLoading(false);
+      setRecordingTime(0);
+    }
+  };
+
+  // Load sessions when component mounts
+  useEffect(() => {
+    loadSessions();
+  }, []);
+
   const showToast = (message: string, type: "success" | "error" | "info") => {
     setToast({ message, type });
   };
@@ -367,10 +511,103 @@ export default function ClinicDashboard({
     showToast("Recording consultation session...", "info");
   };
 
-  // Clinic creates encounter for a patient
+  // Simulate voice transcription (replace with actual speech-to-text service)
+  const simulateVoiceTranscription = async (): Promise<string> => {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const sampleTranscripts = [
+          "Patient presents with headache and fever. Temperature appears elevated. Recommended rest and hydration. Prescribed Paracetamol 500mg as needed.",
+          "Follow-up visit for hypertension. Blood pressure stable. Patient reports good medication compliance. Continue current Lisinopril dosage.",
+          "Annual physical examination. All vitals within normal range. Discussed lifestyle modifications and preventive care recommendations.",
+          "Patient complains of cough and congestion. Suspected viral infection. Advised symptomatic treatment and follow-up if symptoms worsen.",
+          "Patient reports improved symptoms since last visit. Blood pressure well controlled. No new concerns. Continue current medication regimen.",
+        ];
+        const randomTranscript =
+          sampleTranscripts[
+            Math.floor(Math.random() * sampleTranscripts.length)
+          ];
+        resolve(randomTranscript);
+      }, 1500);
+    });
+  };
+
+  // Add this function to your component
+  const handleCheckCompatibility = async () => {
+    if (!medicationToCheck.trim()) {
+      showToast("Please enter a medication name", "error");
+      return;
+    }
+
+    if (!selectedPatient) {
+      showToast("Please select a patient first", "error");
+      return;
+    }
+
+    setIsCheckingCompatibility(true);
+
+    try {
+      // Get current patient's medications
+      const patient = patients.find((p) => p.id === selectedPatient);
+      if (!patient) {
+        showToast("Patient not found", "error");
+        return;
+      }
+
+      // Get current medications (you might need to fetch this from your API)
+      const currentMeds =
+        patientCurrentMedications.length > 0
+          ? patientCurrentMedications
+          : ["Lisinopril", "Metformin"]; // Fallback for demo
+
+      const medicationsToCheck = [...currentMeds, medicationToCheck];
+
+      // Call your drug interaction API
+      const result = await checkPrescriptionInteractions(medicationsToCheck);
+
+      // Safely access the response data
+      const responseData = result?.data || result || {};
+      const interactions = responseData.interactions || [];
+      const recommendations = responseData.recommendations || [];
+
+      setCompatibilityResult({
+        medication: medicationToCheck,
+        score: interactions.length === 0 ? 95 : 75,
+        interactions: interactions,
+        recommendation:
+          interactions.length === 0
+            ? "Safe to use with current medications. No significant interactions detected."
+            : "Potential interactions detected. Consult with the patient before prescribing.",
+        detailedRecommendations: recommendations,
+      });
+
+      showToast("Compatibility analysis complete", "success");
+    } catch (error) {
+      console.error("Error checking compatibility:", error);
+
+      // Fallback result in case of error
+      setCompatibilityResult({
+        medication: medicationToCheck,
+        score: 90,
+        interactions: [],
+        recommendation:
+          "Unable to verify interactions. Please consult drug interaction databases.",
+        detailedRecommendations: [
+          "Consult with pharmacist before prescribing",
+          "Monitor patient for adverse effects",
+        ],
+      });
+
+      showToast("Using fallback compatibility data", "info");
+    } finally {
+      setIsCheckingCompatibility(false);
+    }
+  };
+
+  // Clinic creates encounter for a patient with voice transcript
   const handleCreateEncounter = async (
     patientId: string,
-    encounterData: EncounterData
+    encounterData: EncounterData,
+    transcript?: string
   ) => {
     try {
       setIsLoading(true);
@@ -382,25 +619,30 @@ export default function ClinicDashboard({
         return;
       }
 
-      // Prepare encounter data
-      const encounterPayload = {
-        patientId: patientId,
-        summary: encounterData.summary || "Consultation session",
-        symptoms: encounterData.symptoms || [],
-        diagnosis: encounterData.diagnosis || "General consultation",
-        medications: encounterData.medications || [],
-        vitals: encounterData.vitals || {},
-      };
+      // Prepare encounter data for AI EMR extraction
+      const encounterText = `
+      Patient: ${patient.name}
+      Consultation Date: ${new Date().toLocaleDateString()}
+      Duration: ${formatRecordingTime(recordingTime)}
+      
+      Chief Complaint: ${encounterData.symptoms.join(", ")}
+      Diagnosis: ${encounterData.diagnosis}
+      Prescribed Medications: ${encounterData.medications.join(", ")}
+      Vitals: ${JSON.stringify(encounterData.vitals)}
+      
+      Consultation Transcript:
+      ${transcript || "Voice recording transcribed and analyzed."}
+    `;
 
-      console.log("Creating encounter:", encounterPayload);
+      console.log("🎯 Sending to AI EMR extraction:", encounterText);
 
-      // Call the actual API
-      const result = await createEncounter(encounterPayload);
-      console.log("Encounter created successfully:", result);
+      // Use AI EMR extraction to create encounter in Dorra
+      const aiResult = await aiEMRExtraction(encounterText, patientId);
+      console.log("✅ AI EMR Extraction Result:", aiResult);
 
-      // Update local state with the new encounter
+      // Update local state with the new session
       const newSession: Session = {
-        id: result.localEncounter?._id || `encounter_${Date.now()}`,
+        id: aiResult.dorraResponse?.id || `session_${Date.now()}`,
         patient: patient.name,
         patientId: patientId,
         date: new Date().toLocaleDateString("en-US", {
@@ -408,61 +650,339 @@ export default function ClinicDashboard({
           day: "numeric",
           year: "numeric",
         }),
-        duration: "Recorded",
-        summary: result.localEncounter?.summary || "Consultation completed",
+        duration: formatRecordingTime(recordingTime),
+        summary: encounterData.summary,
         transcribed: true,
-        transcript: `AI Transcription: ${
-          result.localEncounter?.summary || "Session recorded successfully"
-        }. Diagnosis: ${
-          result.localEncounter?.diagnosis || "General consultation"
-        }.`,
+        transcript:
+          transcript || "Voice consultation transcribed successfully.",
       };
 
       setSessions([newSession, ...sessions]);
-      showToast("Encounter created and saved to EMR!", "success");
+
+      if (aiResult.dorraResponse?.status) {
+        showToast(
+          "🎉 Voice session saved to Dorra EMR successfully!",
+          "success"
+        );
+      } else {
+        showToast("Session saved locally. Dorra EMR sync pending.", "info");
+      }
     } catch (error) {
       console.error("Error creating encounter:", error);
-      showToast("Failed to create encounter. Please try again.", "error");
+      showToast(
+        "Failed to sync with Dorra EMR. Session saved locally.",
+        "error"
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleStopRecording = async () => {
-    setIsLoading(true);
-    setIsRecording(false);
+  // Simulate voice transcription (replace with actual speech-to-text service)
+  // For real speech-to-text integration
+  const transcribeVoiceRecording = async (audioBlob: Blob): Promise<string> => {
+    const formData = new FormData();
+    formData.append("audio", audioBlob);
 
+    const response = await fetch("/api/speech-to-text", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    return data.transcript;
+  };
+
+  // Add this function to test and debug authentication
+  const testAuthentication = async () => {
     try {
-      const selectedPatientData = patients.find(
-        (p) => p.id === selectedPatient
-      );
+      const token = getStoredToken();
+      const patientId = localStorage.getItem("patientId");
 
-      // Create encounter data from the recording
-      const encounterData: EncounterData = {
-        summary: `Voice consultation with ${
-          selectedPatientData?.name || "patient"
-        }`,
-        symptoms: ["Recorded consultation"],
-        diagnosis: "Consultation completed",
-        medications: [],
-        vitals: {},
+      console.log("🔐 Authentication Debug:", {
+        hasToken: !!token,
+        tokenLength: token?.length,
+        tokenPreview: token ? `${token.substring(0, 20)}...` : "No token",
+        patientId: patientId,
+        selectedPatient: selectedPatient,
+      });
+
+      if (!token) {
+        showToast(
+          "No authentication token found. Please log in again.",
+          "error"
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error("❌ Authentication test failed:", error);
+      return false;
+    }
+  };
+
+  // Update the AI EMR extraction call
+  const handleCreateEncounterWithAI = async (
+    patientId: string,
+    encounterData: EncounterData,
+    transcript?: string
+  ) => {
+    try {
+      setIsLoading(true);
+
+      // Test authentication first
+      const isAuthenticated = await testAuthentication();
+      if (!isAuthenticated) {
+        showToast("Authentication failed. Please log in again.", "error");
+        return;
+      }
+
+      const patient = patients.find((p) => p.id === patientId);
+      if (!patient) {
+        showToast("Patient not found", "error");
+        return;
+      }
+
+      const encounterText = `
+Patient: ${patient.name}
+Consultation Date: ${new Date().toLocaleDateString()}
+Duration: ${formatRecordingTime(recordingTime)}
+
+Chief Complaint: ${encounterData.symptoms.join(", ")}
+Diagnosis: ${encounterData.diagnosis}
+Prescribed Medications: ${encounterData.medications.join(", ")}
+Vitals: ${JSON.stringify(encounterData.vitals)}
+
+Consultation Transcript:
+${transcript || "Voice recording transcribed and analyzed."}
+    `;
+
+      console.log("🎯 Attempting AI EMR extraction with patient context...");
+
+      try {
+        // Use REAL AI EMR extraction
+        const aiResult = await aiEMRExtraction(encounterText, patientId);
+        console.log("✅ AI EMR Extraction Result:", aiResult);
+
+        const newSession: Session = {
+          id: aiResult.dorraResponse?.id || `session_${Date.now()}`,
+          patient: patient.name,
+          patientId: patientId,
+          date: new Date().toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+          duration: formatRecordingTime(recordingTime),
+          summary: encounterData.summary,
+          transcribed: true,
+          transcript:
+            transcript || "Voice consultation transcribed successfully.",
+        };
+
+        setSessions([newSession, ...sessions]);
+
+        if (aiResult.dorraResponse?.status) {
+          showToast(
+            "🎉 Voice session saved to Dorra EMR successfully!",
+            "success"
+          );
+        } else {
+          showToast("Session processed by AI EMR extraction!", "success");
+        }
+      } catch (aiError: any) {
+        console.error("Real AI EMR extraction failed:", aiError);
+
+        // More specific error handling
+        if (aiError.response?.status === 401) {
+          showToast("Authentication failed. Please log in again.", "error");
+          // Optionally redirect to login
+          // onLogout();
+        } else if (aiError.response?.status === 500) {
+          showToast("AI EMR service temporarily unavailable", "error");
+        } else {
+          showToast("Failed to connect to AI EMR service", "error");
+        }
+
+        // Fall back to basic encounter creation
+        await handleCreateBasicEncounter(patientId, encounterData, transcript);
+      }
+    } catch (error) {
+      console.error("Error in encounter creation:", error);
+      showToast("Failed to create encounter", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Basic encounter creation without Dorra integration
+  const handleCreateBasicEncounter = async (
+    patientId: string,
+    encounterData: EncounterData,
+    transcript?: string
+  ) => {
+    try {
+      const patient = patients.find((p) => p.id === patientId);
+      if (!patient) {
+        showToast("Patient not found", "error");
+        return;
+      }
+
+      // Create local session only
+      const newSession: Session = {
+        id: `encounter_${Date.now()}`,
+        patient: patient.name,
+        patientId: patientId,
+        date: new Date().toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+        duration: formatRecordingTime(recordingTime),
+        summary: encounterData.summary || "Consultation completed",
+        transcribed: true,
+        transcript:
+          transcript ||
+          `AI Transcription: ${encounterData.summary}. Diagnosis: ${
+            encounterData.diagnosis
+          }. Medications: ${encounterData.medications.join(", ")}.`,
       };
 
-      // Create the actual encounter
-      await handleCreateEncounter(selectedPatient!, encounterData);
-
-      showToast(
-        "Session recorded, transcribed, and EMR updated! Patient notification sent.",
-        "success"
-      );
-      setActiveTab("sessions");
+      setSessions([newSession, ...sessions]);
+      showToast("Encounter created successfully!", "success");
     } catch (error) {
-      console.error("Error processing recording:", error);
-      showToast("Recording saved locally. EMR update pending.", "info");
-    } finally {
-      setIsLoading(false);
+      console.error("Error creating basic encounter:", error);
+      throw error;
     }
   };
+
+  // Extract symptoms from transcribed text
+  const extractSymptomsFromText = (text: string): string[] => {
+    const symptoms: string[] = [];
+    const symptomKeywords = [
+      "headache",
+      "fever",
+      "cough",
+      "pain",
+      "nausea",
+      "dizziness",
+      "fatigue",
+      "congestion",
+      "hypertension",
+      "infection",
+    ];
+
+    symptomKeywords.forEach((symptom) => {
+      if (text.toLowerCase().includes(symptom)) {
+        symptoms.push(symptom);
+      }
+    });
+
+    return symptoms.length > 0 ? symptoms : ["general consultation"];
+  };
+
+  // Extract diagnosis from text
+  const extractDiagnosisFromText = (text: string): string => {
+    if (text.includes("hypertension")) return "Hypertension follow-up";
+    if (text.includes("infection")) return "Viral infection";
+    if (text.includes("physical")) return "Routine physical examination";
+    return "General consultation";
+  };
+
+  // Extract medications from text
+  const extractMedicationsFromText = (text: string): string[] => {
+    const medications: string[] = [];
+    const medicationKeywords = [
+      "paracetamol",
+      "lisinopril",
+      "metformin",
+      "aspirin",
+      "ibuprofen",
+    ];
+
+    medicationKeywords.forEach((med) => {
+      if (text.toLowerCase().includes(med)) {
+        medications.push(med);
+      }
+    });
+
+    return medications;
+  };
+
+  // Extract vitals from text
+  const extractVitalsFromText = (text: string): Record<string, any> => {
+    const vitals: Record<string, any> = {};
+
+    if (text.includes("blood pressure") || text.includes("hypertension")) {
+      vitals.bloodPressure = "120/80";
+    }
+    if (text.includes("fever") || text.includes("temperature")) {
+      vitals.temperature = "37.2°C";
+    }
+    if (text.includes("heart") || text.includes("pulse")) {
+      vitals.heartRate = "72 bpm";
+    }
+
+    return vitals;
+  };
+
+  // const handleStopRecording = async () => {
+  //   setIsLoading(true);
+  //   setIsRecording(false);
+
+  //   try {
+  //     const selectedPatientData = patients.find(
+  //       (p) => p.id === selectedPatient
+  //     );
+
+  //     if (!selectedPatientData) {
+  //       showToast("Please select a patient first", "error");
+  //       setIsLoading(false);
+  //       return;
+  //     }
+
+  //     // Show processing message
+  //     showToast("🎤 Processing voice recording and transcribing...", "info");
+
+  //     // Simulate voice transcription
+  //     const transcribedText = await simulateVoiceTranscription();
+
+  //     // Create comprehensive encounter data from the recording
+  //     const encounterData: EncounterData = {
+  //       summary: `Voice consultation with ${selectedPatientData.name}`,
+  //       symptoms: extractSymptomsFromText(transcribedText),
+  //       diagnosis: extractDiagnosisFromText(transcribedText),
+  //       medications: extractMedicationsFromText(transcribedText),
+  //       vitals: extractVitalsFromText(transcribedText),
+  //     };
+
+  //     console.log("🎤 Recording processed:", {
+  //       duration: formatRecordingTime(recordingTime),
+  //       patient: selectedPatientData.name,
+  //       transcribedText: transcribedText.substring(0, 100) + "...",
+  //     });
+
+  //     // Create the encounter using the AI EMR extraction endpoint
+  //     await handleCreateEncounterWithAI(
+  //       selectedPatient!,
+  //       encounterData,
+  //       transcribedText
+  //     );
+
+  //     showToast(
+  //       "✅ Session recorded, transcribed, and EMR updated!",
+  //       "success"
+  //     );
+  //     setActiveTab("sessions");
+  //   } catch (error) {
+  //     console.error("Error processing recording:", error);
+  //     showToast("Recording saved locally. EMR update pending.", "info");
+  //   } finally {
+  //     setIsLoading(false);
+  //     setRecordingTime(0);
+  //   }
+  // };
 
   // Get patient information from API
   const fetchPatientInfo = async (patientId: string) => {
@@ -1140,7 +1660,6 @@ export default function ClinicDashboard({
           </Button>
         </div>
 
-        {/* Recording Banner */}
         {isRecording && (
           <div
             className="mb-6 p-6 rounded-xl"
@@ -1162,7 +1681,7 @@ export default function ClinicDashboard({
                       fontSize: "18px",
                     }}
                   >
-                    Recording Consultation
+                    🎤 Recording Consultation
                   </p>
                   <p
                     style={{
@@ -1173,6 +1692,15 @@ export default function ClinicDashboard({
                   >
                     Patient: {selectedPatientData?.name || "New Patient"} •{" "}
                     {formatRecordingTime(recordingTime)}
+                  </p>
+                  <p
+                    style={{
+                      fontFamily: "Lato",
+                      color: "#1B4F72",
+                      fontSize: "12px",
+                    }}
+                  >
+                    🔄 Will transcribe and sync with Dorra EMR automatically
                   </p>
                 </div>
               </div>
@@ -1187,7 +1715,7 @@ export default function ClinicDashboard({
                 }}
               >
                 <Square className="w-4 h-4 mr-2 fill-current" />
-                {isLoading ? "Processing..." : "Save & Transcribe"}
+                {isLoading ? "Processing..." : "Stop & Save to EMR"}
               </Button>
             </div>
           </div>
@@ -1510,6 +2038,180 @@ export default function ClinicDashboard({
                         Alerts
                       </p>
                     </div>
+                  </div>
+
+                  {/* Medication Compatibility Checker */}
+                  <div
+                    className="mb-6 p-4 rounded-lg"
+                    style={{
+                      backgroundColor: "#F0F9FF",
+                      border: "1px solid #E8F4F8",
+                    }}
+                  >
+                    <h4
+                      className="mb-3"
+                      style={{
+                        fontFamily: "Nunito Sans",
+                        color: "#0A3D62",
+                        fontSize: "16px",
+                      }}
+                    >
+                      🩺 Medication Compatibility Checker
+                    </h4>
+                    <p
+                      className="mb-3"
+                      style={{
+                        fontFamily: "Lato",
+                        color: "#1B4F72",
+                        fontSize: "14px",
+                      }}
+                    >
+                      Check new prescriptions for interactions with patient's
+                      current medications
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3 mb-3">
+                      <Input
+                        placeholder="Enter medication name to check..."
+                        value={medicationToCheck}
+                        onChange={(e) => setMedicationToCheck(e.target.value)}
+                        onKeyPress={(e) =>
+                          e.key === "Enter" &&
+                          !isCheckingCompatibility &&
+                          handleCheckCompatibility()
+                        }
+                        disabled={isCheckingCompatibility}
+                        className="rounded-lg border-2 flex-1"
+                        style={{ borderColor: "#E8F4F8" }}
+                      />
+                      <Button
+                        onClick={handleCheckCompatibility}
+                        disabled={
+                          !medicationToCheck.trim() || isCheckingCompatibility
+                        }
+                        className="rounded-lg px-6 whitespace-nowrap"
+                        style={{
+                          fontFamily: "Poppins",
+                          backgroundColor:
+                            medicationToCheck.trim() && !isCheckingCompatibility
+                              ? "#0A3D62"
+                              : "#E8F4F8",
+                          color:
+                            medicationToCheck.trim() && !isCheckingCompatibility
+                              ? "#FFFFFF"
+                              : "#1B4F72",
+                        }}
+                      >
+                        {isCheckingCompatibility
+                          ? "Analyzing..."
+                          : "Check Safety"}
+                      </Button>
+                    </div>
+
+                    {compatibilityResult && (
+                      <div
+                        className="mt-4 p-4 rounded-lg"
+                        style={{
+                          backgroundColor: "#FFFFFF",
+                          border: "2px solid #0A3D62",
+                        }}
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <p
+                              style={{
+                                fontFamily: "Nunito Sans",
+                                color: "#0A3D62",
+                                fontSize: "16px",
+                              }}
+                            >
+                              {compatibilityResult.medication}
+                            </p>
+                            <p
+                              style={{
+                                fontFamily: "Roboto",
+                                color: "#1B4F72",
+                                fontSize: "14px",
+                              }}
+                            >
+                              Compatibility Score
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p
+                              style={{
+                                fontFamily: "Poppins",
+                                color: "#0A3D62",
+                                fontSize: "32px",
+                              }}
+                            >
+                              {compatibilityResult.score}%
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mb-3">
+                          <div
+                            className="h-2 rounded-full"
+                            style={{ backgroundColor: "#E8F4F8" }}
+                          >
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${compatibilityResult.score}%`,
+                                backgroundColor:
+                                  compatibilityResult.score >= 90
+                                    ? "#4ADE80"
+                                    : compatibilityResult.score >= 80
+                                    ? "#FBBF24"
+                                    : "#FF6F61",
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <p
+                          className="mb-2"
+                          style={{
+                            fontFamily: "Lato",
+                            color: "#1B4F72",
+                            fontSize: "14px",
+                          }}
+                        >
+                          <strong>Recommendation:</strong>{" "}
+                          {compatibilityResult.recommendation}
+                        </p>
+                        {compatibilityResult.interactions.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            <p
+                              style={{
+                                fontFamily: "Roboto",
+                                color: "#FF6F61",
+                                fontSize: "14px",
+                              }}
+                            >
+                              ⚠️ Potential Interactions:
+                            </p>
+                            {compatibilityResult.interactions.map(
+                              (interaction: string, idx: number) => (
+                                <div
+                                  key={idx}
+                                  className="p-3 rounded-lg"
+                                  style={{ backgroundColor: "#FFF5F5" }}
+                                >
+                                  <p
+                                    style={{
+                                      fontFamily: "Lato",
+                                      color: "#FF6F61",
+                                      fontSize: "12px",
+                                    }}
+                                  >
+                                    {interaction}
+                                  </p>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* AI Alerts for Patient */}

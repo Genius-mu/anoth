@@ -62,9 +62,12 @@ import {
   checkDrugInteractions,
   generateQRCode,
   aiEMRExtraction,
+  getPatientSessions,
   getPatientPrescriptions,
+  getStoredToken,
+  removeToken,
+  storeToken,
 } from "./api/api";
-import { getStoredToken, removeToken, storeToken } from "./api/api";
 
 interface User {
   name: string;
@@ -187,6 +190,7 @@ export default function PatientDashboard({
   const [selectedClinic, setSelectedClinic] = useState<any>(null);
   const [qrCodeData, setQrCodeData] = useState<any>(null);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [sessions, setSessions] = useState<any[]>([]);
 
   // Fix the newPrescription state - remove the duplicate declaration
   const [newPrescription, setNewPrescription] = useState({
@@ -389,6 +393,32 @@ export default function PatientDashboard({
   //       return;
   //     }
 
+  //     console.log("🔄 Fetching sessions for patient:", user._id);
+  //   const patientSessions = await getPatientSessions(user._id);
+  //   console.log("📋 Sessions fetched from storage:", patientSessions);
+
+  //   if (patientSessions && patientSessions.length > 0) {
+  //     const formattedSessions = patientSessions.map((session: any) => ({
+  //       id: session._id,
+  //       patient: session.patientName || user.name,
+  //       patientId: session.patientId,
+  //       date: new Date(session.sessionDate).toLocaleDateString("en-US", {
+  //         month: "short",
+  //         day: "numeric",
+  //         year: "numeric",
+  //       }),
+  //       duration: session.duration || "Unknown",
+  //       summary: session.summary || "No summary available",
+  //       transcribed: session.transcribed || false,
+  //       transcript: session.transcript,
+  //       clinicName: session.clinicName || "Your Clinic",
+  //     }));
+
+  //     // You might want to set this in state if you have a sessions tab
+  //     console.log("✅ Setting sessions in state:", formattedSessions);
+  //     // setSessions(formattedSessions); // Uncomment if you have sessions state
+  //   }
+
   //     // Load patient profile
   //     const profile = await getPatientProfile();
   //     setPatientProfile(profile);
@@ -401,9 +431,10 @@ export default function PatientDashboard({
   //     const symptomsData = await getSymptoms();
   //     setSymptoms(symptomsData || []);
 
-  //     // Load prescriptions from API
+  //     // ✅ FETCH PRESCRIPTIONS FROM DATABASE/STORAGE
+  //     console.log("🔄 Fetching prescriptions for patient:", user._id);
   //     const prescriptionsData = await getPatientPrescriptions(user._id);
-  //     console.log("Loaded prescriptions:", prescriptionsData);
+  //     console.log("📋 Prescriptions fetched from storage:", prescriptionsData);
 
   //     if (prescriptionsData && prescriptionsData.length > 0) {
   //       // Convert API prescription format to component format
@@ -418,18 +449,25 @@ export default function PatientDashboard({
   //           day: "numeric",
   //           year: "numeric",
   //         }),
-  //         compatibility: Math.floor(Math.random() * 15) + 85, // Could be calculated from API
+  //         compatibility: Math.floor(Math.random() * 15) + 85,
   //         status: px.status || "active",
+  //         instructions: px.instructions,
+  //         duration: px.duration,
   //       }));
 
+  //       console.log(
+  //         "✅ Setting prescriptions in state:",
+  //         formattedPrescriptions
+  //       );
   //       setPrescriptions(formattedPrescriptions);
   //     } else {
+  //       console.log("⚠️ No prescriptions found, using fallback data");
   //       // Fallback to extracted prescriptions if no API data
   //       const extractedPrescriptions = extractPrescriptionsFromRecords(records);
   //       setPrescriptions(extractedPrescriptions);
   //     }
   //   } catch (error: any) {
-  //     console.error("Error loading patient data:", error);
+  //     console.error("❌ Error loading patient data:", error);
 
   //     if (error.response?.status === 401) {
   //       showToast("Session expired. Please log in again.", "error");
@@ -452,7 +490,6 @@ export default function PatientDashboard({
     try {
       setIsLoading(true);
 
-      // Check if we have a valid token
       const token = getStoredToken();
       if (!token) {
         showToast("Please log in again", "error");
@@ -460,25 +497,21 @@ export default function PatientDashboard({
         return;
       }
 
-      // Load patient profile
-      const profile = await getPatientProfile();
+      // Load all patient data in parallel for better performance
+      const [profile, records, symptomsData, prescriptionsData] =
+        await Promise.all([
+          getPatientProfile(),
+          getPatientRecords(),
+          getSymptoms(),
+          getPatientPrescriptions(user._id),
+        ]);
+
       setPatientProfile(profile);
-
-      // Load patient records
-      const records = await getPatientRecords();
       setPatientRecords(records.localRecords || []);
-
-      // Load symptoms
-      const symptomsData = await getSymptoms();
       setSymptoms(symptomsData || []);
 
-      // ✅ FETCH PRESCRIPTIONS FROM DATABASE/STORAGE
-      console.log("🔄 Fetching prescriptions for patient:", user._id);
-      const prescriptionsData = await getPatientPrescriptions(user._id);
-      console.log("📋 Prescriptions fetched from storage:", prescriptionsData);
-
-      if (prescriptionsData && prescriptionsData.length > 0) {
-        // Convert API prescription format to component format
+      // Process prescriptions
+      if (prescriptionsData?.length > 0) {
         const formattedPrescriptions = prescriptionsData.map((px: any) => ({
           id: px._id,
           name: px.medication,
@@ -495,20 +528,13 @@ export default function PatientDashboard({
           instructions: px.instructions,
           duration: px.duration,
         }));
-
-        console.log(
-          "✅ Setting prescriptions in state:",
-          formattedPrescriptions
-        );
         setPrescriptions(formattedPrescriptions);
       } else {
-        console.log("⚠️ No prescriptions found, using fallback data");
-        // Fallback to extracted prescriptions if no API data
         const extractedPrescriptions = extractPrescriptionsFromRecords(records);
         setPrescriptions(extractedPrescriptions);
       }
     } catch (error: any) {
-      console.error("❌ Error loading patient data:", error);
+      console.error("Error loading patient data:", error);
 
       if (error.response?.status === 401) {
         showToast("Session expired. Please log in again.", "error");
@@ -516,11 +542,8 @@ export default function PatientDashboard({
         onLogout();
       } else {
         showToast("Failed to load patient data", "error");
-        // Load fallback data
-        const extractedPrescriptions = extractPrescriptionsFromRecords({
-          localRecords: [],
-        });
-        setPrescriptions(extractedPrescriptions);
+        // Set fallback data
+        setPrescriptions(extractPrescriptionsFromRecords({ localRecords: [] }));
       }
     } finally {
       setIsLoading(false);
@@ -4026,27 +4049,3 @@ function VitalQuickView({ icon, title, value, status }: any) {
     </div>
   );
 }
-
-// function VitalQuickView({ icon, title, value, status }: any) {
-//   return (
-//     <div className="p-3 rounded-lg" style={{ backgroundColor: "#F2F6FA" }}>
-//       <div className="flex items-center gap-2 mb-1">
-//         <div style={{ color: status === "normal" ? "#16A34A" : "#FF6F61" }}>
-//           {icon}
-//         </div>
-//         <p style={{ fontFamily: "Roboto", color: "#1B4F72", fontSize: "11px" }}>
-//           {title}
-//         </p>
-//       </div>
-//       <p
-//         style={{
-//           fontFamily: "Nunito Sans",
-//           color: "#0A3D62",
-//           fontSize: "18px",
-//         }}
-//       >
-//         {value}
-//       </p>
-//     </div>
-//   );
-// }

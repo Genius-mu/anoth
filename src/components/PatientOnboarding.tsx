@@ -58,13 +58,13 @@ export default function PatientOnboarding({
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // In the handleNext function, update the success handling:
   const handleNext = async () => {
     if (step === 1) {
       setStep(2);
     } else {
       setLoading(true);
       try {
-        // Complete registration even without files
         const res = await axios.post(
           "https://dosewise-2p1n.onrender.com/api/auth/patient/register",
           {
@@ -91,30 +91,76 @@ export default function PatientOnboarding({
           }
         );
 
-        const token = res.data.data.token;
-        storeToken(token, "patient");
-        console.log("Patient created, token stored:", token);
+        console.log("📦 Full API Response:", res.data);
 
-        onComplete({
-          ...formData,
-          token: token,
-        });
-      } catch (err: any) {
-        console.error("Error creating patient:", err.response || err.message);
+        // SAFE: Check response structure step by step
+        if (res.data && res.data.data) {
+          const responseData = res.data.data;
 
-        // Even if there's an error, check if it's just about files and proceed
-        if (
-          err.response?.data?.message?.includes("file") ||
-          err.response?.data?.message?.includes("upload")
-        ) {
-          // If it's just a file-related error, proceed with onboarding
-          console.warn("File upload failed, but proceeding with user creation");
+          // Get token safely
+          const token = responseData.token;
+          if (!token) {
+            throw new Error("No token received from server");
+          }
+
+          // Get patient ID safely - try different possible locations
+          let patientId = null;
+
+          if (responseData.patient && responseData.patient._id) {
+            patientId = responseData.patient._id;
+          } else if (responseData._id) {
+            patientId = responseData._id;
+          } else if (responseData.user && responseData.user._id) {
+            patientId = responseData.user._id;
+          } else if (responseData.id) {
+            patientId = responseData.id;
+          }
+
+          // Store both token and patient ID
+          storeToken(token, "patient");
+          if (patientId) {
+            localStorage.setItem("patientId", patientId);
+          } else {
+            console.warn(
+              "⚠️ No patient ID found in response, using timestamp as fallback"
+            );
+            patientId = `patient_${Date.now()}`;
+            localStorage.setItem("patientId", patientId);
+          }
+
+          console.log("✅ Patient onboarded successfully:", {
+            token: token.substring(0, 20) + "...",
+            patientId: patientId,
+            name: formData.name,
+          });
+
           onComplete({
             ...formData,
-            token: "dummy-token-or-handle-differently", // You'll need to handle this case
+            token: token,
+            _id: patientId,
           });
         } else {
-          alert("Failed to create patient. Check console for details.");
+          throw new Error("Invalid response structure from server");
+        }
+      } catch (err: any) {
+        console.error(
+          "Error creating patient:",
+          err.response?.data || err.message
+        );
+
+        // Handle specific error cases
+        if (err.response?.data?.message?.includes("already exists")) {
+          // Patient already exists - provide helpful message
+          alert(
+            "An account with this email already exists. Please use a different email address or try logging in."
+          );
+        } else if (err.response?.status === 400) {
+          alert(
+            err.response?.data?.message ||
+              "Please check your information and try again."
+          );
+        } else {
+          alert("Failed to create patient account. Please try again.");
         }
       } finally {
         setLoading(false);
@@ -249,7 +295,7 @@ export default function PatientOnboarding({
                 >
                   <User className="w-4 h-4" style={{ color: "#1B4F72" }} />
                   <span style={{ fontFamily: "Roboto", color: "#1B4F72" }}>
-                    {'Password (must be > six (6) words) *'}
+                    {"Password (must be > six (6) words) *"}
                   </span>
                 </Label>
                 <Input

@@ -72,18 +72,32 @@ export default function App() {
     }
   };
 
-  const handlePatientOnboardingComplete = (data: {
-    name: string;
-    dob: string;
-    email: string;
-  }) => {
-    setUser({
+  const handlePatientOnboardingComplete = (patientData: any) => {
+    console.log("🎉 Patient onboarding complete:", patientData);
+
+    // Create a proper user object for the dashboard with all required fields
+    const newUser: User = {
       type: "patient",
-      name: data.name,
-      dob: data.dob,
-      email: data.email,
+      name: patientData.name,
+      email: patientData.email,
+      dob: patientData.dob,
       subscriptionTier: "free",
-    });
+      token: patientData.token, // Include the token
+      _id: patientData._id || patientData.id, // Include the patient ID
+    };
+
+    // Store in localStorage for persistence
+    localStorage.setItem("currentPatient", JSON.stringify(newUser));
+
+    // Also ensure patientId is stored separately for API calls
+    if (patientData._id) {
+      localStorage.setItem("patientId", patientData._id);
+    }
+
+    console.log("✅ Setting user for dashboard:", newUser);
+
+    // Navigate to patient dashboard with the proper user object
+    setUser(newUser);
     setCurrentPage("patient-dashboard");
   };
 
@@ -107,11 +121,6 @@ export default function App() {
     setUser(null);
     setPendingUserType(null);
   };
-  // const handleSymptomLogger = () => {
-  //   setCurrentPage("landing");
-  //   setUser(null);
-  //   setPendingUserType(null);
-  // };
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F2F6FA" }}>

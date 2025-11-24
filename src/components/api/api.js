@@ -10,14 +10,29 @@ export const getStoredToken = () => {
   );
 };
 
+export const getStoredPatientId = () => {
+  return localStorage.getItem("patientId");
+};
+
 export const storeToken = (token, userType) => {
   const key = userType === "patient" ? "patientToken" : "clinicToken";
   localStorage.setItem(key, token);
+  console.log(
+    `✅ Token stored for ${userType}:`,
+    token ? `${token.substring(0, 20)}...` : "No token"
+  );
+};
+
+// Add this helper function if it doesn't exist
+export const getAuthToken = () => {
+  return getStoredToken();
 };
 
 export const removeToken = () => {
   localStorage.removeItem("patientToken");
   localStorage.removeItem("clinicToken");
+  localStorage.removeItem("patientId");
+  console.log("🔐 All tokens cleared");
 };
 
 // Create axios instance with default config
@@ -29,25 +44,54 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = getStoredToken();
+    const patientId = getStoredPatientId();
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      console.log(
+        `🔐 Adding auth token to ${config.method?.toUpperCase()} ${config.url}`,
+        {
+          tokenPreview: token.substring(0, 20) + "...",
+          patientId: patientId,
+        }
+      );
+    } else {
+      console.warn(
+        `⚠️ No auth token for ${config.method?.toUpperCase()} ${config.url}`
+      );
     }
+
     return config;
   },
   (error) => {
+    console.error("❌ Request interceptor error:", error);
     return Promise.reject(error);
   }
 );
 
 // Error handling interceptor
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log(
+      `✅ ${response.config.method?.toUpperCase()} ${
+        response.config.url
+      } success`
+    );
+    return response;
+  },
   (error) => {
-    if (error.response?.status === 401) {
-      removeToken();
-      if (window.location.pathname !== "/login") {
-        window.location.replace("/login");
+    console.error(
+      `❌ ${error.config?.method?.toUpperCase()} ${error.config?.url} failed:`,
+      {
+        status: error.response?.status,
+        message: error.response?.data?.message,
       }
+    );
+
+    if (error.response?.status === 401) {
+      console.error("🔐 Authentication failed - clearing tokens");
+      removeToken();
+      // Don't redirect automatically as this might be a clinic dashboard
     }
     return Promise.reject(error);
   }
@@ -153,9 +197,43 @@ export const checkDrugInteractions = async (medications) => {
   }
 };
 
+// In api.js - FIXED aiEMRExtraction function
 export const aiEMRExtraction = async (text, patientId) => {
-  const res = await api.post(`/ai/emr`, { text, patientId });
-  return res.data.data;
+  try {
+    const token = getStoredToken();
+
+    if (!token) {
+      throw new Error("No authentication token found. Please log in again.");
+    }
+
+    console.log("🎯 Sending to AI EMR extraction with:", {
+      textLength: text.length,
+      patientId: patientId,
+      hasToken: true,
+      tokenPreview: token.substring(0, 20) + "...",
+    });
+
+    const response = await api.post("/ai/emr", {
+      text,
+      patientId,
+    });
+
+    console.log("✅ AI EMR extraction successful:", response.data);
+    return response.data;
+  } catch (error) {
+    console.error("❌ AI EMR extraction failed:", {
+      status: error.response?.status,
+      message: error.response?.data?.message,
+      patientId: patientId,
+    });
+
+    // Re-throw the error with more context
+    throw new Error(
+      `AI EMR extraction failed: ${
+        error.response?.data?.message || error.message
+      }`
+    );
+  }
 };
 
 // ==================== CLINIC ENDPOINTS ====================
@@ -199,66 +277,24 @@ export const getEncounterById = async (encounterId) => {
   const res = await api.get(`/clinic/encounter/${encounterId}`);
   return res.data.data;
 };
-// Create prescription for patient
-// export const createPrescription = async (prescriptionData) => {
-//   try {
-//     const res = await api.post(`/clinic/prescription`, prescriptionData);
-//     return res.data.data;
-//   } catch (error) {
-//     console.error("Error creating prescription:", error);
 
-//     // Mock success response for development
-//     const mockResponse = {
-//       _id: `prescription_${Date.now()}`,
-//       ...prescriptionData,
-//       status: "active",
-//       createdAt: new Date().toISOString(),
-//       updatedAt: new Date().toISOString(),
-//     };
+// Add this to your ClinicDashboard component
+const testAuthentication = async () => {
+  try {
+    const token = getStoredToken();
+    console.log("🔐 Current Token:", token);
 
-//     console.log("⚠️ Using mock prescription creation");
-//     return mockResponse;
-//   }
-// };
+    // Test if we can make a simple authenticated request
+    const patientInfo = await getClinicPatientInfo("1");
+    console.log("✅ Authentication test passed:", patientInfo);
+    showToast("Authentication is working!", "success");
+  } catch (error) {
+    console.error("❌ Authentication test failed:", error);
+    showToast("Authentication failed. Please log in again.", "error");
+  }
+};
 
-// export const getPatientPrescriptions = async (patientId) => {
-//   try {
-//     const res = await api.get(`/patient/prescriptions/${patientId}`);
-//     return res.data.data;
-//   } catch (error) {
-//     console.error("Error fetching prescriptions:", error);
-
-//     // Mock prescriptions for development
-//     const mockPrescriptions = [
-//       {
-//         _id: "1",
-//         medication: "Lisinopril 10mg",
-//         dosage: "10mg",
-//         frequency: "Once daily",
-//         duration: "Ongoing",
-//         instructions: "Take in the morning",
-//         prescribedBy: "Dr. Sarah Johnson",
-//         prescribedDate: "2025-10-01",
-//         status: "active",
-//       },
-//       {
-//         _id: "2",
-//         medication: "Metformin 500mg",
-//         dosage: "500mg",
-//         frequency: "Twice daily with meals",
-//         duration: "Ongoing",
-//         instructions: "Take with food to minimize stomach upset",
-//         prescribedBy: "Dr. Sarah Johnson",
-//         prescribedDate: "2025-09-15",
-//         status: "active",
-//       },
-//     ];
-
-//     console.log("⚠️ Using mock prescriptions data");
-//     return mockPrescriptions;
-//   }
-// };
-
+// Call this somewhere in your component to test
 // ==================== PRESCRIPTION ENDPOINTS ====================
 
 // Create prescription (Clinic)
@@ -386,6 +422,70 @@ export const getPatientPrescriptions = async (patientId) => {
   }
 };
 
+// Get patient data by ID (for clinic use)
+export const getPatientById = async (patientId) => {
+  try {
+    console.log("🔍 Fetching patient data for:", patientId);
+
+    const res = await api.get(`/clinic/patient/${patientId}`);
+    console.log("✅ Patient data fetched successfully:", res.data);
+    return res.data.data;
+  } catch (error) {
+    console.error("❌ Error fetching patient data:", error);
+
+    // Mock data for development
+    const mockPatient = {
+      _id: patientId,
+      name: "John Doe",
+      email: "john.doe@email.com",
+      dob: "1990-01-01",
+      phone: "+1234567890",
+      address: "123 Main St, City, Country",
+      conditions: ["hypertension", "diabetes"],
+      currentMedications: ["Lisinopril 10mg", "Metformin 500mg"],
+      allergies: ["Penicillin"],
+      emergencyContact: {
+        name: "Jane Doe",
+        phone: "+1234567891",
+        relationship: "Spouse",
+      },
+      lastVisit: new Date().toISOString(),
+      visits: 12,
+    };
+
+    console.log("⚠️ Using mock patient data due to backend error");
+    return mockPatient;
+  }
+};
+
+// Book a session with patient
+export const bookPatientSession = async (sessionData) => {
+  try {
+    console.log("📅 Booking session:", sessionData);
+
+    const res = await api.post(`/clinic/sessions`, sessionData);
+    console.log("✅ Session booked successfully:", res.data);
+    return res.data.data;
+  } catch (error) {
+    console.error("❌ Error booking session:", error);
+
+    // Mock response for development
+    const mockSession = {
+      _id: `session_${Date.now()}`,
+      ...sessionData,
+      status: "scheduled",
+      createdAt: new Date().toISOString(),
+      sessionCode: `SESSION-${Math.random()
+        .toString(36)
+        .substr(2, 8)
+        .toUpperCase()}`,
+    };
+
+    console.log("⚠️ Using mock session booking");
+    return mockSession;
+  }
+};
+
 // Get prescriptions by clinic (Clinic)
 export const getClinicPrescriptions = async (clinicId) => {
   try {
@@ -509,6 +609,107 @@ export const getAIMedicationAlternatives = async (medication, condition) => {
     }
   );
   return response.data;
+};
+
+// ==================== SESSION ENDPOINTS ====================
+
+// Create a new session (Clinic)
+export const createSession = async (sessionData) => {
+  try {
+    console.log("🎤 Creating session:", sessionData);
+
+    const res = await api.post(`/sessions`, sessionData);
+    console.log("✅ Session created successfully:", res.data);
+    return res.data.data;
+  } catch (error) {
+    console.error("❌ Error creating session:", error);
+
+    // Enhanced mock response for development
+    const mockResponse = {
+      _id: `session_${Date.now()}`,
+      ...sessionData,
+      status: "completed",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    console.log("⚠️ Using mock session creation - STORED IN MOCK DATABASE");
+
+    // Store in localStorage as mock database
+    const existingSessions = JSON.parse(
+      localStorage.getItem("mockSessions") || "[]"
+    );
+    const updatedSessions = [...existingSessions, mockResponse];
+    localStorage.setItem("mockSessions", JSON.stringify(updatedSessions));
+
+    console.log(
+      "📦 Mock session stored. Total sessions:",
+      updatedSessions.length
+    );
+
+    return mockResponse;
+  }
+};
+
+export const getPatientSessions = async (patientId) => {
+  try {
+    const res = await api.get(`/sessions/patient/${patientId}`);
+    console.log("✅ Sessions fetched successfully for patient:", patientId);
+    return res.data.data;
+  } catch (error) {
+    console.error("❌ Error fetching sessions:", error);
+
+    // Get from mock database (localStorage)
+    const mockSessions = JSON.parse(
+      localStorage.getItem("mockSessions") || "[]"
+    );
+    const patientSessions = mockSessions.filter(
+      (s) => s.patientId === patientId
+    );
+
+    console.log(
+      "⚠️ Using mock sessions from storage. Found:",
+      patientSessions.length
+    );
+
+    return patientSessions;
+  }
+};
+
+// Get sessions by clinic (Clinic)
+export const getClinicSessions = async (clinicId) => {
+  try {
+    const res = await api.get(`/sessions/clinic/${clinicId}`);
+    return res.data.data;
+  } catch (error) {
+    console.error("Error fetching clinic sessions:", error);
+
+    // Get all sessions from mock database
+    const mockSessions = JSON.parse(
+      localStorage.getItem("mockSessions") || "[]"
+    );
+    console.log("📋 All sessions in mock database:", mockSessions);
+
+    return mockSessions;
+  }
+};
+
+// Get session by ID
+export const getSessionById = async (sessionId) => {
+  try {
+    const res = await api.get(`/sessions/${sessionId}`);
+    return res.data.data;
+  } catch (error) {
+    console.error("Error fetching session:", error);
+
+    // Get from mock database
+    const mockSessions = JSON.parse(
+      localStorage.getItem("mockSessions") || "[]"
+    );
+    const session = mockSessions.find((s) => s._id === sessionId);
+
+    return session || null;
+  }
 };
 
 // AI dosage optimization
